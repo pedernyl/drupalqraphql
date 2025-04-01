@@ -11,7 +11,7 @@
 # Ignorere Docker-related files thats not nenecessary
 mariadb-data/
 drupal-data/
-
+drupal/
 # Ignorere other temporary files
 *.log
 *.cache

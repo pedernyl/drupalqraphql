@@ -17,6 +17,21 @@ fi
 # Print the container name
 echo "Drupal container name: $DRUPAL_CONTAINER_NAME"
 
+# Get the name of the database container dynamically from docker-compose.yml
+DB_CONTAINER_NAME=$(docker-compose config | awk '
+  BEGIN {found = 0}
+  /services:/ {found = 1}
+  found && /mariadb:/ {getline; while ($1 != "container_name:") {getline}; print $2; exit}
+')
+
+# Check if the database container name was found
+if [ -z "$DB_CONTAINER_NAME" ]; then
+  DB_CONTAINER_NAME="mariadb"
+fi
+
+# Print the database container name
+echo "Database container name: $DB_CONTAINER_NAME"
+
 #Fetching args for sitename, user and pass
 #Defaultvalues
 sitename="drupal"
