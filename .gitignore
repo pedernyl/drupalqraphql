@@ -1,0 +1,18 @@
+# Ignorere Drupal-core and dependencies
+/vendor/
+/web/core/
+/web/modules/contrib/
+/web/themes/contrib/
+/web/profiles/contrib/
+
+# Ignorere cache och uploaded files
+/web/sites/default/files/
+
+# Ignorere Docker-related files thats not nenecessary
+mariadb-data/
+drupal-data/
+
+# Ignorere other temporary files
+*.log
+*.cache
+*.tmp
