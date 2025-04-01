@@ -107,8 +107,69 @@ echo "Database is ready!"
 
 # Wait for the Drupal container to be ready to accept Drush commands
 echo "Waiting for the Drupal container to be ready..."
-until docker exec "$DRUPAL_CONTAINER" drush status >/dev/null 2>&1; do
+until docker exec "$DRUPAL_CONTAINER_NAME" drush status >/dev/null 2>&1; do
   echo "Drupal not ready yet. Retrying in 3 seconds..."
   sleep 3
 done
 echo "Drupal container is ready!"
+
+if ! docker exec drupal drush status --field=bootstrap | grep -q "Successful"; then
+  echo "Drupal is not installed. Preparing file system and installing..."
+
+  echo "Getting Drupal root path..."
+  DRUPAL_ROOT=$(docker exec "$DRUPAL_CONTAINER_NAME" drush status | grep "Drupal root" | awk -F': ' '{print $2}' | xargs | tr -d '\r')
+  echo "Drupal root is: $DRUPAL_ROOT"
+
+  # Exit if root path couldn't be determined
+  if [ -z "$DRUPAL_ROOT" ]; then
+    echo "❌ Failed to detect Drupal root path. Aborting script."
+    exit 1
+  fi
+
+  echo "Detecting web server user inside the container..."
+  APACHE_USER=$(docker exec "$DRUPAL_CONTAINER_NAME" ps aux | grep -E 'apache2|httpd|php-fpm' | grep -v root | awk '{print $1}' | head -n 1)
+  echo "Detected web server user: $APACHE_USER"
+
+  if [ -z "$APACHE_USER" ]; then
+    echo "❌ Failed to detect web server user. Aborting script."
+    exit 1
+  fi
+  echo "Setting correct file permissions for Drupal..."
+  docker exec "$DRUPAL_CONTAINER_NAME" chmod -R ug+w "$DRUPAL_ROOT/sites/default"
+  docker exec "$DRUPAL_CONTAINER_NAME" mkdir -p "$DRUPAL_ROOT/sites/default/files"
+  docker exec "$DRUPAL_CONTAINER_NAME" chmod -R ug+w "$DRUPAL_ROOT/sites/default/files"
+  docker exec "$DRUPAL_CONTAINER_NAME" chown -R "$APACHE_USER:$APACHE_USER" "$DRUPAL_ROOT/sites/default"
+  echo "✅ Permissions and ownership set!"
+  
+  docker exec "$DRUPAL_CONTAINER_NAME" drush site-install standard \
+  --site-name="$sitename" \
+  --account-name="$username" \
+  --account-pass="$password" \
+  --db-url="mysql://drupal:drupal@$DB_CONTAINER_NAME/drupal" \
+  -y
+
+ echo "🔒 Konfigurerar trusted_host_patterns i settings.php..."
+ echo "🔒 Skriver korrekt trusted_host_patterns-block direkt med PHP..."
+
+docker exec "$DRUPAL_CONTAINER_NAME" php -r '
+  $file = "/var/www/html/sites/default/settings.php";
+  $code = "\n\$settings[\"trusted_host_patterns\"] = [\n  \"^localhost$\",\n  \"^127\\.0\\.0\\.1$\",\n];\n";
+  $existing = file_get_contents($file);
+  // Ta bort tidigare block (om de finns)
+  $existing = preg_replace("/\\\$settings\\[\"trusted_host_patterns\"\\]\s*=\s*\[[^\]]*\];/s", "", $existing);
+  file_put_contents($file, $existing . $code);
+'
+
+
+  #enabling graphql 
+  echo "Enabling GraphQL module..."
+  docker exec "$DRUPAL_CONTAINER_NAME" drush en graphql -y
+
+  echo "Drupal installation and GraphQL activation completed!"
+  
+else
+  echo "Drupal is already installed. Skipping installation."
+fi
+
+echo "Checking for updates"
+docker exec "$DRUPAL_CONTAINER_NAME" drush cron

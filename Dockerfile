@@ -22,11 +22,4 @@ RUN composer install --no-dev --optimize-autoloader
 COPY . . 
 
 WORKDIR /opt/drupal/web
-
-
-
-# Install Drush via Composer
-#RUN composer require drush/drush
-
-# Verify Drush installation
-#RUN vendor/bin/drush --version    
+  
