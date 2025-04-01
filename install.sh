@@ -90,3 +90,25 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
+
+docker compose build --no-cache
+
+# Start Docker containers in the background
+echo "Starting Docker containers..."
+docker compose up -d
+
+# Wait for the database container to become ready
+echo "Waiting for the database to be ready..."
+until docker exec "$DB_CONTAINER_NAME" mariadb -h "localhost" -u root -p'rootpassword' -e "SELECT 1" >/dev/null 2>&1; do
+    echo "Database not ready yet. Retrying in 3 seconds..."
+    sleep 3
+done
+echo "Database is ready!"
+
+# Wait for the Drupal container to be ready to accept Drush commands
+echo "Waiting for the Drupal container to be ready..."
+until docker exec "$DRUPAL_CONTAINER" drush status >/dev/null 2>&1; do
+  echo "Drupal not ready yet. Retrying in 3 seconds..."
+  sleep 3
+done
+echo "Drupal container is ready!"

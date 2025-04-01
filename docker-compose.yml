@@ -7,10 +7,6 @@ services:
     container_name: drupal
     ports:
       - "8080:80"
-    volumes:
-      - ./drupal/web:/var/www/html # Map Drupal code to local directory
-      - ./composer.json:/var/www/html/composer.json
-      - ./composer.lock:/var/www/html/composer.lock
     depends_on:
       - mariadb
     environment:

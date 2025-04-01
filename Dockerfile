@@ -6,7 +6,27 @@ RUN apt-get update && apt-get install -y \
     nano \
     git \
     unzip \
+    wget \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
- # Set working directory
-WORKDIR /var/www/html   
+# Install Composer globally
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
+# Set working directory
+WORKDIR /opt/drupal
+
+COPY composer.json composer.lock ./
+
+RUN composer install --no-dev --optimize-autoloader
+
+COPY . . 
+
+WORKDIR /opt/drupal/web
+
+
+
+# Install Drush via Composer
+#RUN composer require drush/drush
+
+# Verify Drush installation
+#RUN vendor/bin/drush --version    
