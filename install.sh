@@ -162,8 +162,8 @@ docker exec "$DRUPAL_CONTAINER_NAME" php -r '
 
 
   #enabling graphql 
-  echo "Enabling GraphQL module..."
-  docker exec "$DRUPAL_CONTAINER_NAME" drush en graphql -y
+  echo "Enabling GraphQL, GraphQL_compose and GraphQL_compose_views modules..."
+  docker exec "$DRUPAL_CONTAINER_NAME" drush en graphql graphql_compose graphql_compose_views -y
 
   echo "Drupal installation and GraphQL activation completed!"
   
