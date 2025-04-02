@@ -1,4 +1,5 @@
 #!/bin/bash
+
 # This script installs the required packages for the project
 # and sets up the environment.
 
@@ -32,8 +33,8 @@ fi
 # Print the database container name
 echo "Database container name: $DB_CONTAINER_NAME"
 
-#Fetching args for sitename, user and pass
-#Defaultvalues
+# Fetching args for sitename, user and pass
+# Default values
 sitename="drupal"
 username="drupal"
 password="drupal"
@@ -91,10 +92,22 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-docker compose build --no-cache
+# Check if the containers are already running
+if [ "$(docker ps -q -f name="$DRUPAL_CONTAINER_NAME")" ] && [ "$(docker ps -q -f name="$DB_CONTAINER_NAME")" ]; then
+    echo "Containers are already running. Exiting script."
+    exit 0
+fi
 
-# Start Docker containers in the background
-echo "Starting Docker containers..."
+# Check if the containers already exist but are not running
+if [ "$(docker ps -a -q -f name="$DRUPAL_CONTAINER_NAME")" ] || [ "$(docker ps -a -q -f name="$DB_CONTAINER_NAME")" ]; then
+    echo "Containers exist but are not running. Starting them..."
+    docker compose up -d
+    echo "Containers started. Exiting script."
+    exit 0
+fi
+
+echo "Building and starting the containers..."
+docker compose build
 docker compose up -d
 
 # Wait for the database container to become ready
@@ -107,69 +120,63 @@ echo "Database is ready!"
 
 # Wait for the Drupal container to be ready to accept Drush commands
 echo "Waiting for the Drupal container to be ready..."
-until docker exec "$DRUPAL_CONTAINER_NAME" drush status >/dev/null 2>&1; do
+until docker exec "$DRUPAL_CONTAINER_NAME" drush core-status >/dev/null 2>&1; do
   echo "Drupal not ready yet. Retrying in 3 seconds..."
   sleep 3
 done
 echo "Drupal container is ready!"
 
-if ! docker exec drupal drush status --field=bootstrap | grep -q "Successful"; then
-  echo "Drupal is not installed. Preparing file system and installing..."
+echo "Preparing file system and installing Drupal..."
 
-  echo "Getting Drupal root path..."
-  DRUPAL_ROOT=$(docker exec "$DRUPAL_CONTAINER_NAME" drush status | grep "Drupal root" | awk -F': ' '{print $2}' | xargs | tr -d '\r')
-  echo "Drupal root is: $DRUPAL_ROOT"
+echo "Getting Drupal root path..."
+DRUPAL_ROOT=$(docker exec "$DRUPAL_CONTAINER_NAME" drush core-status | grep "Drupal root" | awk -F': ' '{print $2}' | xargs | tr -d '\r')
+echo "Drupal root is: $DRUPAL_ROOT"
 
-  # Exit if root path couldn't be determined
-  if [ -z "$DRUPAL_ROOT" ]; then
-    echo "❌ Failed to detect Drupal root path. Aborting script."
-    exit 1
-  fi
+# Exit if root path couldn't be determined
+if [ -z "$DRUPAL_ROOT" ]; then
+  echo "❌ Failed to detect Drupal root path. Aborting script."
+  exit 1
+fi
 
-  echo "Detecting web server user inside the container..."
-  APACHE_USER=$(docker exec "$DRUPAL_CONTAINER_NAME" ps aux | grep -E 'apache2|httpd|php-fpm' | grep -v root | awk '{print $1}' | head -n 1)
-  echo "Detected web server user: $APACHE_USER"
+echo "Detecting web server user inside the container..."
+APACHE_USER=$(docker exec "$DRUPAL_CONTAINER_NAME" ps aux | grep -E 'apache2|httpd|php-fpm' | grep -v root | awk '{print $1}' | head -n 1)
+echo "Detected web server user: $APACHE_USER"
 
-  if [ -z "$APACHE_USER" ]; then
-    echo "❌ Failed to detect web server user. Aborting script."
-    exit 1
-  fi
-  echo "Setting correct file permissions for Drupal..."
-  docker exec "$DRUPAL_CONTAINER_NAME" chmod -R ug+w "$DRUPAL_ROOT/sites/default"
-  docker exec "$DRUPAL_CONTAINER_NAME" mkdir -p "$DRUPAL_ROOT/sites/default/files"
-  docker exec "$DRUPAL_CONTAINER_NAME" chmod -R ug+w "$DRUPAL_ROOT/sites/default/files"
-  docker exec "$DRUPAL_CONTAINER_NAME" chown -R "$APACHE_USER:$APACHE_USER" "$DRUPAL_ROOT/sites/default"
-  echo "✅ Permissions and ownership set!"
-  
-  docker exec "$DRUPAL_CONTAINER_NAME" drush site-install standard \
-  --site-name="$sitename" \
-  --account-name="$username" \
-  --account-pass="$password" \
-  --db-url="mysql://drupal:drupal@$DB_CONTAINER_NAME/drupal" \
-  -y
+if [ -z "$APACHE_USER" ]; then
+  echo "❌ Failed to detect web server user. Aborting script."
+  exit 1
+fi
 
- echo "🔒 Konfigurerar trusted_host_patterns i settings.php..."
- echo "🔒 Skriver korrekt trusted_host_patterns-block direkt med PHP..."
+echo "Setting correct file permissions for Drupal..."
+docker exec "$DRUPAL_CONTAINER_NAME" chmod -R ug+w "$DRUPAL_ROOT/sites/default"
+docker exec "$DRUPAL_CONTAINER_NAME" mkdir -p "$DRUPAL_ROOT/sites/default/files"
+docker exec "$DRUPAL_CONTAINER_NAME" chmod -R ug+w "$DRUPAL_ROOT/sites/default/files"
+docker exec "$DRUPAL_CONTAINER_NAME" chown -R "$APACHE_USER:$APACHE_USER" "$DRUPAL_ROOT/sites/default"
+echo "✅ Permissions and ownership set!"
+
+docker exec "$DRUPAL_CONTAINER_NAME" drush site-install standard \
+--site-name="$sitename" \
+--account-name="$username" \
+--account-pass="$password" \
+--db-url="mysql://drupal:drupal@$DB_CONTAINER_NAME/drupal" \
+-y
+
+echo "🔒 Configuring trusted_host_patterns in settings.php..."
+echo "🔒 Writing correct trusted_host_patterns block directly with PHP..."
 
 docker exec "$DRUPAL_CONTAINER_NAME" php -r '
   $file = "/var/www/html/sites/default/settings.php";
   $code = "\n\$settings[\"trusted_host_patterns\"] = [\n  \"^localhost$\",\n  \"^127\\.0\\.0\\.1$\",\n];\n";
   $existing = file_get_contents($file);
-  // Ta bort tidigare block (om de finns)
-  $existing = preg_replace("/\\\$settings\\[\"trusted_host_patterns\"\\]\s*=\s*\[[^\]]*\];/s", "", $existing);
+  // Remove previous blocks (if any)
+  $existing = preg_replace("/\\\$settings\\[\"trusted_host_patterns\"\\]\s*\=\s*\[[^\]]*\];/s", "", $existing);
   file_put_contents($file, $existing . $code);
 '
 
+echo "Enabling GraphQL, GraphQL_compose and GraphQL_compose_views modules..."
+docker exec "$DRUPAL_CONTAINER_NAME" drush en graphql graphql_compose graphql_compose_views -y
 
-  #enabling graphql 
-  echo "Enabling GraphQL, GraphQL_compose and GraphQL_compose_views modules..."
-  docker exec "$DRUPAL_CONTAINER_NAME" drush en graphql graphql_compose graphql_compose_views -y
-
-  echo "Drupal installation and GraphQL activation completed!"
-  
-else
-  echo "Drupal is already installed. Skipping installation."
-fi
+echo "Drupal installation and GraphQL activation completed!"
 
 echo "Checking for updates"
 docker exec "$DRUPAL_CONTAINER_NAME" drush cron
